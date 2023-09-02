@@ -1,0 +1,20 @@
+aws_region: us-east-2
+
+#Nomenclature
+title: "prod-dmz-"
+vpc_name: "{{ title }} VPC"
+igw_name: "{{ title }} Igw"
+public_nacl_name: "{{ title }} public-nacl"
+private_nacl_name: "{{ title }} private-nacl" 
+public_security_group_name: "{{ title }} public-SG"
+private_security_group_name: "{{ title }} private-SG"
+public_route_table_name: "{{ title }} public-rt"
+private_route_table_name: "{{ title }} private-rt"
+
+#CIDR BLocks
+vpc_cidr_block: 10.0.0.0/16
+destination_cidr_block: '0.0.0.0/0'
+public_subnet_cidr_block1: '10.0.1.0/24'
+public_subnet_cidr_block2: '10.0.2.0/24'
+private_subnet_cidr_block1: '10.0.3.0/24'
+private_subnet_cidr_block2: '10.0.4.0/24'

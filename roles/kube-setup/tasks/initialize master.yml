@@ -1,0 +1,46 @@
+---
+- name: Get external IP address
+  command: curl -s http://ifconfig.me
+  register: external_ip
+  changed_when: false
+
+- name: external_ip
+  debug:
+    var: external_ip  
+
+- name: Get hostname
+  command:
+    cmd: hostname -s
+  register: node_name_output
+  changed_when: false
+
+- name: node_name_output
+  debug:
+    var: node_name_output    
+
+- name: Set variables
+  set_fact:
+    IPADDR: "{{ external_ip.stdout | trim }}"
+    NODENAME: "{{ node_name_output.stdout | trim }}"
+    POD_CIDR: "10.244.0.0/16"
+
+
+- name: Debug IPADDR
+  debug:
+    var: IPADDR
+- name: Debug NODENAME
+  debug:
+    var: NODENAME
+- name: Debug POD_CIDR
+  debug:
+    var: POD_CIDR    
+
+- name: Initialize Kubernetes control plane
+  command:
+    cmd: "kubeadm init --control-plane-endpoint={{ IPADDR }} --apiserver-cert-extra-sans={{ IPADDR }} --pod-network-cidr={{ POD_CIDR }} --node-name {{ NODENAME }} --ignore-preflight-errors Swap"
+  become: yes
+  register: kubeadm_init_output
+
+- name: Show kubeadm init output
+  debug:
+    var: kubeadm_init_output.stdout_lines

@@ -1,0 +1,27 @@
+---
+# - hosts: master_nodes:worker_node
+#   gather_facts: true
+#   become: true
+#   roles:
+#     #- vpc
+#     #- bastion_k8s_nodes
+#     - kube-setup
+#     #- k8s
+#   tasks:
+#     - name: Container_runtime
+#       include_tasks: /root/ansible-bubbert/roles/kube-setup/tasks/Container-runtime.yml
+
+#     - name: kubeadm_kubelet
+#       include_tasks: /root/ansible-bubbert/roles/kube-setup/tasks/kubeadm-kubelet.yml  
+
+- hosts: master_nodes
+  gather_facts: true
+  become: true
+  roles:
+    #- vpc
+    #- bastion_k8s_nodes
+    - kube-setup
+    #- k8s
+  tasks:
+    - name: initialize master
+      include_tasks: /root/ansible-bubbert/roles/kube-setup/tasks/initialize master.yml     

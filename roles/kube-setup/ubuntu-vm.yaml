@@ -1,0 +1,30 @@
+apiVersion: kubevirt.io/v1alpha3
+kind: VirtualMachine
+metadata:
+  name: ubuntu-vm
+spec:
+  running: false
+  template:
+    metadata:
+      labels:
+        kubevirt.io/domain: ubuntu-vm
+    spec:
+      domain:
+        devices:
+          disks:
+            - name: containerdisk
+              disk:
+                bus: virtio
+            - name: cloudinitdisk
+              disk:
+                bus: virtio
+        resources:
+          requests:
+            memory: 1024M
+      volumes:
+        - name: containerdisk
+          containerDisk:
+            image: kubevirt/ubuntu-cloud-container-disk-demo:latest
+        - name: cloudinitdisk
+          cloudInitNoCloud:
+            userDataBase64: I2Nsb3VkLWNvbmZpZwpwYWNrYWdlczoKICAtIGdpdAo=  # Encoded cloud-init script

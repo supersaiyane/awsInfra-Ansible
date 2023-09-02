@@ -1,0 +1,16 @@
+---
+- name: Create Multiple EIPs from Separate Vars File
+  vars_files:
+    - eip_vars.yml
+  tasks:
+    - name: Allocate new EIPs
+      amazon.aws.ec2_eip:
+        public_ip: "{{ item }}"
+        region: us-east-2
+      loop: "{{ eip_ips }}"
+      register: eip_results
+
+    - name: Show the allocated EIPs
+      debug:
+        msg: "Allocated EIP is {{ item.public_ip }}"
+      loop: "{{ eip_results.results }}"

@@ -1,0 +1,30 @@
+add user data to ec2 
+
+- name: Install essential packages on Bastion host
+  block:
+    - name: Update package manager cache
+      apt:
+        update_cache: yes
+      become: true
+
+    - name: Install essential packages on Bastion host
+      apt:
+        name:
+          - awscli
+          - git
+          - iputils-ping  # For ping
+          - unzip
+          - wget
+          - curl
+        state: present
+      become: true
+
+- name: Install kubectl
+  block:
+    - name: Download kubectl
+      get_url:
+        url: "https://storage.googleapis.com/kubernetes-release/release/{{ kubectl_version }}/bin/linux/amd64/kubectl"
+        dest: "/usr/local/bin/kubectl"
+        mode: '0755'
+      become: true
+  when: kubectl_version is defined

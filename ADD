@@ -1,0 +1,53 @@
+Requirements:
+AWS CLI installed and configured
+Ansible installed on your local machine
+A SSH key-pair available in AWS
+Playbook Structure
+
+ansible-k8s-aws/
+│
+├── roles/
+│   ├── vpc/
+│   ├── ec2/
+│   ├── kube-setup/
+│   └── kube-addons/
+│
+├── vars/
+│   └── main.yml
+│
+└── site.yml
+
+
+Create a VPC
+Create Internet Gateway and associate it
+Create 2 Public and 2 Private Subnets
+Create Security Groups for EC2 instances
+EC2 Role (roles/ec2/tasks/main.yml)
+Tasks to:
+
+Provision the Bastion host
+Provision Kubernetes master nodes
+Provision Kubernetes worker nodes
+Kube-Setup Role (roles/kube-setup/tasks/main.yml)
+Tasks to:
+
+Initialize the Kubernetes master
+Set up the CNI (Calico or Weave)
+Join the worker nodes to the cluster
+Automate token sharing for EC2 nodes to join
+Implement RBAC
+Kube-Addons Role (roles/kube-addons/tasks/main.yml)
+Tasks to:
+
+Install EBS CSI Driver
+Enable Logs to Cloudwatch
+Create Metrics Server
+Set up Monitoring (Prometheus & Grafana)
+Set up an Ingress Controller (nginx or traefik)
+Variables File (vars/main.yml)
+
+Store variables for:
+EC2 instance type
+AWS Region
+Subnet information
+etc.

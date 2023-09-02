@@ -1,0 +1,211 @@
+---
+
+- name: Create a new EC2 key pair
+  ec2_key:
+    name: "{{ Key_Name }}"
+    region: "{{ aws_region }}"
+  register: ec2_key
+
+# - name: Debug ec2_key
+#   debug:
+#     var: ec2_key  
+
+- name: Save private key
+  copy: content="{{ ec2_key.key.private_key }}" dest="/root/ansible-bubbert/roles/bastion_k8s_nodes/key/{{ Key_Name }}.pem" mode=0600
+  when: ec2_key.changed
+
+
+- name: Gather information about VPCs
+  ec2_vpc_net_info:
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Name": "prod-dmz- VPC"
+  register: vpc_info
+
+- name: Fail if no VPCs are found
+  fail:
+    msg: "No VPC found with the specified name/tag."
+  when: vpc_info.vpcs | length == 0  
+
+# - name: Display VPC info
+#   debug:
+#     var: vpc_info
+
+- set_fact:
+      my_vpc_id: "{{ vpc_info.vpcs[0].id }}" # Assuming that you've got unique names/tags for each VPC
+
+# - debug:
+#     msg: "The VPC ID is {{ my_vpc_id }}"
+
+- name: Gather information about Subnets
+  ec2_vpc_subnet_info:
+    region: "{{ aws_region }}"
+    filters:
+      "vpc-id": "{{ my_vpc_id }}"
+      "tag:Name": "public_subnet_1" # replace with yo
+  register: subnet_info
+
+# - name: Display Subnet info
+#   debug:
+#     var: subnet_info
+
+- name: Fail if no Subnets are found
+  fail:
+    msg: "No Subnets found in the specified VPC."
+  when: subnet_info.subnets | length == 0
+
+- name: Gather information about Security Groups
+  ec2_group_info:
+    region: "{{ aws_region }}"
+    filters:
+      "vpc-id": "{{ my_vpc_id }}"
+      "tag:Name": "prod-dmz- public-SG"
+  register: sg_info
+
+# - name: Display Security Group info
+#   debug:
+#     var: sg_info
+
+
+# - name: Launch Bastion instance
+#   ec2_instance:
+#     region: "{{ aws_region }}"
+#     name: "{{ bastion_Name }}"
+#     instance_type: "{{ instance_type }}"
+#     image_id: "{{ AMI_ID }}"
+#     detailed_monitoring: true
+#     user_data: "{{ lookup('file', 'user_data.sh') }}"
+#     state: running
+#     wait_timeout: 600
+#     volumes:
+#       - device_name: /dev/xvda
+#         ebs:
+#           delete_on_termination: true      
+#           volume_type: gp2
+#           volume_size: 8    
+#     network:
+#       assign_public_ip: true
+#       security_groups: "{{ sg_info.security_groups[0].group_id }}"
+#     key_name: "{{ Key_Name }}"
+#     vpc_subnet_id: "{{ subnet_info.subnets[0].id }}"
+#     tags:
+#       Environment: Testing    
+#   register: bastion
+#   when:
+#     - aws_region is defined
+#     - instance_type is defined
+#     - AMI_ID is defined
+#     - Key_Name is defined
+#     - subnet_info.subnets is defined
+#     - subnet_info.subnets|length > 0
+#     - sg_info.security_groups is defined
+#     - sg_info.security_groups|length > 0
+
+
+- name: Launch Kubernetes Master Nodes
+  ec2_instance:
+    region: "{{ aws_region }}"
+    name: "{{ k8s_master }}"
+    instance_type: "{{ instance_type }}"
+    image_id: "{{ AMI_ID }}"
+    exact_count: 1
+    detailed_monitoring: true
+    user_data: "{{ lookup('file', 'user_data.sh') }}"
+    state: running
+    wait_timeout: 600
+    volumes:
+      - device_name: /dev/xvda
+        ebs:
+          delete_on_termination: true      
+          volume_type: gp2
+          volume_size: 100    
+    network:
+      assign_public_ip: true
+      security_groups: "{{ sg_info.security_groups[0].group_id }}"
+    key_name: "{{ Key_Name }}"
+    vpc_subnet_id: "{{ subnet_info.subnets[0].id }}"
+    tags:
+      Environment: Testing
+      name: "{{ k8s_master }}"          
+  register: k8s_master
+  when:
+    - aws_region is defined
+    - instance_type is defined
+    - AMI_ID is defined
+    - Key_Name is defined
+    - subnet_info.subnets is defined
+    - subnet_info.subnets|length > 0
+    - sg_info.security_groups is defined
+    - sg_info.security_groups|length > 0
+
+- name: Launch Kubernetes Worker Nodes
+  ec2_instance:
+    region: "{{ aws_region }}"
+    name: "{{ k8s_worker }}"
+    instance_type: "{{ instance_type }}"
+    image_id: "{{ AMI_ID }}"
+    exact_count: 2
+    detailed_monitoring: true
+    state: running
+    wait_timeout: 600
+    user_data: "{{ lookup('file', 'user_data.sh') }}"
+    volumes:
+      - device_name: /dev/xvda
+        ebs:
+          delete_on_termination: true      
+          volume_type: gp2
+          volume_size: 100    
+    network:
+      assign_public_ip: true
+      security_groups: "{{ sg_info.security_groups[0].group_id }}"
+    key_name: "{{ Key_Name }}"
+    vpc_subnet_id: "{{ subnet_info.subnets[0].id }}"
+    tags:
+      Environment: Testing
+      name: "{{ k8s_worker }}"  
+  register: k8s_worker
+  when:
+    - aws_region is defined
+    - instance_type is defined
+    - AMI_ID is defined
+    - Key_Name is defined
+    - subnet_info.subnets is defined
+    - subnet_info.subnets|length > 0
+    - sg_info.security_groups is defined
+    - sg_info.security_groups|length > 0        
+
+# - name: Display instances
+#   debug:
+#     var: bastion
+
+- name: Display instances
+  debug:
+    var: k8s_master
+
+- name: Display instances
+  debug:
+    var: k8s_worker
+
+- name: Create CloudWatch Alarm for CPU Utilization
+  ec2_metric_alarm:
+    region: "{{ aws_region }}"
+    name: "cpu-utilization-alarm"
+    metric: "CPUUtilization"
+    namespace: "AWS/EC2"
+    statistic: "Average"
+    comparison: "GreaterThanOrEqualToThreshold"
+    threshold: "75.0"
+    period: "300"
+    evaluation_periods: "1"
+    dimensions: "{'InstanceId': '{{ item }}' }"
+  loop:
+    #- "{{ bastion.instances[0].instance_id }}"
+    - "{{ k8s_master.instances[0].instance_id }}"
+    - "{{ k8s_worker.instances[0].instance_id }}"
+  when: k8s_worker is defined    
+
+- name: Ensure .kube directory exists for the user
+  file:
+    path: "/home/{{ ansible_user }}/.kube"
+    state: directory
+  become: true

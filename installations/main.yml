@@ -1,0 +1,10 @@
+- name: Run sh on all EC2 instances
+  hosts: aws
+  become: true
+  tasks:
+    - name: Ensure directory exists
+      ansible.builtin.file:
+        path: /root/ansible-bubbert/installations/
+        state: directory
+    - name: Execute the shell script
+      script: "/root/ansible-bubbert/installations/installations.sh > /root/ansible-bubbert/installations/file.log 2>&1"

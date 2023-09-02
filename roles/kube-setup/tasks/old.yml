@@ -1,0 +1,201 @@
+
+- name: Add Docker GPG key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+
+- name: Add Docker repository
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+
+- name: Update APT cache
+  apt:
+    update_cache: yes
+
+- name: Install containerd dependencies
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - software-properties-common
+    state: present
+
+- name: Install containerd
+  apt:
+    name: containerd.io
+    state: present
+
+- name: Enable and start containerd service
+  systemd:
+    name: containerd
+    enabled: yes
+    state: started
+  register: containerdserviceresult
+- debug:
+    var: containerdserviceresult
+
+- name: Configure containerd for Kubernetes
+  shell: |
+    mkdir -p /etc/systemd/system/containerd.service.d
+    cat > /etc/systemd/system/containerd.service.d/10-kubeadm.conf <<EOF
+    [Service]
+    ExecStartPre=-/sbin/modprobe overlay
+    ExecStartPre=-/sbin/modprobe br_netfilter
+    EOF
+  args:
+    executable: /bin/bash
+
+- name: Reload systemd and restart containerd to pick up changes
+  systemd:
+    daemon_reload: yes
+    name: containerd
+    state: restarted
+
+# Initialize Kubernetes Master Node
+- name: Initialize the Kubernetes Master Node
+  command: kubeadm init --pod-network-cidr=10.244.0.0/16
+  delegate_to: "{{ item }}"
+  with_items: "{{ master_nodes }}"
+  become: true
+  run_once: true  # Run only on the first master node
+
+# Extract the kubeadm join command token
+- name: Get kubeadm join command from Master Node
+  shell: kubeadm token create --print-join-command
+  delegate_to: "{{ master_nodes.instances[0].public_ip }}"
+  register: join_command
+  become: true
+
+# Setup K8s worker nodes
+- name: Join the worker nodes to the cluster
+  command: "{{ join_command.stdout }}"
+  delegate_to: "{{ item.public_ip }}"
+  with_items: "{{ worker_nodes.instances }}"
+  become: true
+
+# Install Calico as CNI (Container Network Interface)
+- name: Apply Calico Network
+  command: kubectl apply -f https://docs.projectcalico.org/v3.15/manifests/calico.yaml
+  delegate_to: "{{ master_nodes.instances[0].public_ip }}"
+  become: true
+
+# Install Amazon EBS CSI Driver
+- name: Apply Amazon EBS CSI driver
+  shell: |
+    kubectl apply -k "github.com/kubernetes-sigs/aws-ebs-csi-driver/deploy/kubernetes/overlays/stable/ecr/?ref=master"
+  delegate_to: "{{ master_nodes.instances[0].public_ip }}"
+  become: true
+
+# Install Metrics Server
+- name: Apply Metrics Server
+  shell: |
+    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+  delegate_to: "{{ master_nodes.instances[0].public_ip }}"
+  become: true
+
+# Install Prometheus and Grafana for Monitoring
+- name: Create monitoring namespace
+  shell: kubectl create namespace monitoring
+  delegate_to: "{{ master_nodes.instances[0].public_ip }}"
+  become: true
+
+- name: Install Prometheus Operator
+  shell: |
+    kubectl apply -f https://github.com/prometheus-operator/prometheus-operator/releases/download/v0.50.0/bundle.yaml
+  delegate_to: "{{ master_nodes.instances[0].public_ip }}"
+  become: true
+
+- name: Install Grafana
+  shell: |
+    kubectl create -f https://raw.githubusercontent.com/grafana/grafana/main/packaging/kubernetes/grafana-dashboards.yaml
+    kubectl create -f https://raw.githubusercontent.com/grafana/grafana/main/packaging/kubernetes/grafana-service.yaml
+  delegate_to: "{{ master_nodes.instances[0].public_ip }}"
+  become: true
+
+# Install Nginx Ingress Controller
+- name: Apply Nginx Ingress Controller
+  shell: |
+    kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.0.4/deploy/static/provider/aws/deploy.yaml
+  delegate_to: "{{ master_nodes.instances[0].public_ip }}"
+  become: true
+
+# Install CloudWatch Agent
+- name: Download CloudWatch Agent
+  get_url:
+    url: https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+    dest: /tmp/amazon-cloudwatch-agent.deb
+  become: true
+
+- name: Install CloudWatch Agent
+  apt:
+    deb: /tmp/amazon-cloudwatch-agent.deb
+  become: true
+
+# Configure CloudWatch Agent
+- name: Upload CloudWatch Agent Config
+  template:
+    src: templates/cloudwatch-config.json.j2  # Make sure you have this template file
+    dest: /opt/aws/amazon-cloudwatch-agent/etc/cloudwatch-config.json
+  become: true
+
+- name: Start CloudWatch Agent
+  systemd:
+    name: amazon-cloudwatch-agent
+    enabled: yes
+    state: started
+  become: true
+
+- name: Create Cluster Autoscaler namespace
+  k8s:
+    name: kube-system
+    api_version: v1
+    kind: Namespace
+  become: true
+  delegate_to: "{{ groups['masters'][0] }}"
+
+- name: Deploy Cluster Autoscaler
+  k8s:
+    src: /path/to/cluster-autoscaler.yaml  # Point this to your Cluster Autoscaler manifest file
+  become: true
+  delegate_to: "{{ groups['masters'][0] }}"  
+
+# Install Minikube (required by KubeVirt)
+- name: Install Minikube
+  shell: |
+    curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64 \
+    && chmod +x minikube
+    sudo mkdir -p /usr/local/bin/
+    sudo install minikube /usr/local/bin/
+  delegate_to: "{{ master_nodes.instances[0].public_ip }}"
+  become: true
+
+# Install KubeVirt
+- name: Export KUBEVIRT_VERSION
+  shell: export KUBEVIRT_VERSION=$(curl -s https://api.github.com/repos/kubevirt/kubevirt/releases/latest | jq -r .tag_name)
+  delegate_to: "{{ master_nodes.instances[0].public_ip }}"
+  become: true
+
+- name: Install KubeVirt CustomResource (CR)
+  shell: |
+    kubectl create -f https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-cr.yaml
+  delegate_to: "{{ master_nodes.instances[0].public_ip }}"
+  become: true
+
+- name: Install KubeVirt CustomResourceDefinition (CRD)
+  shell: |
+    kubectl create -f https://github.com/kubevirt/kubevirt/releases/download/${KUBEVIRT_VERSION}/kubevirt-operator.yaml
+  delegate_to: "{{ master_nodes.instances[0].public_ip }}"
+  become: true
+
+# Create Ubuntu VM
+- name: Create Ubuntu VM
+  shell: |
+    kubectl create -f /path/to/ubuntu-vm.yaml  # Replace with the actual path to your Ubuntu VM YAML definition
+  delegate_to: "{{ master_nodes.instances[0].public_ip }}"
+  become: true
+
+
+
+

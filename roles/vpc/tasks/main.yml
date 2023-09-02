@@ -1,0 +1,182 @@
+---
+- name: Create VPC
+  ec2_vpc_net:
+    name: "{{ vpc_name }}"
+    state: present
+    cidr_block: "{{ vpc_cidr_block }}"
+    region: "{{ aws_region }}"
+  register: vpc
+
+#IGW
+- name: Create Internet Gateway
+  ec2_vpc_igw:
+    vpc_id: "{{ vpc.vpc.id }}"
+    state: present
+    region: "{{ aws_region }}"
+  register: igw
+
+
+
+#SG for Public_subnet
+- name: Create Security Group for Public Subnets
+  ec2_group:
+    name: "{{ public_security_group_name }}"
+    description: Security Group for public subnets
+    vpc_id: "{{ vpc.vpc.id }}"
+    tags:
+      Name: "{{ public_security_group_name }}"
+    rules:
+      - proto: tcp
+        ports:
+          - 22 # SSH
+        cidr_ip: 0.0.0.0/0
+    region: "{{ aws_region }}"
+  register: public_sg
+
+#SG for Private_subnet
+- name: Create Security Group for Private Subnets
+  ec2_group:
+    name: "{{ private_security_group_name }}"
+    description: Security Group for private subnets
+    tags:
+      Name: "{{ private_security_group_name }}"    
+    vpc_id: "{{ vpc.vpc.id }}"
+    rules:
+      - proto: all
+        group_id: "{{ public_sg.group_id }}"
+    region: "{{ aws_region }}"
+  register: private_sg
+
+#Public_subnet_1
+- name: Create Public Subnet 1
+  ec2_vpc_subnet:
+    state: present
+    vpc_id: "{{ vpc.vpc.id }}"
+    cidr: "{{ public_subnet_cidr_block1 }}"
+    az: "{{ aws_region }}a"
+    map_public: yes
+    resource_tags:
+      Name: "public_subnet_1"
+    region: "{{ aws_region }}"
+  register: public_subnet_1
+
+#Public_subnet_2
+- name: Create Public Subnet 2
+  ec2_vpc_subnet:
+    state: present
+    vpc_id: "{{ vpc.vpc.id }}"
+    cidr: "{{ public_subnet_cidr_block2 }}"
+    az: "{{ aws_region }}b"
+    map_public: yes
+    resource_tags:
+      Name: "public_subnet_2"
+    region: "{{ aws_region }}"
+  register: public_subnet_2
+
+#Private_subnet_1
+- name: Create Private Subnet 1
+  ec2_vpc_subnet:
+    state: present
+    vpc_id: "{{ vpc.vpc.id }}"
+    cidr: "{{ private_subnet_cidr_block1 }}"
+    az: "{{ aws_region }}a"
+    resource_tags:
+      Name: "private_subnet_1"
+    region: "{{ aws_region }}"
+  register: private_subnet_1
+
+#Private_subnet_2
+- name: Create Private Subnet 2
+  ec2_vpc_subnet:
+    state: present
+    vpc_id: "{{ vpc.vpc.id }}"
+    cidr: "{{ private_subnet_cidr_block2 }}"
+    az: "{{ aws_region }}b"
+    resource_tags:
+      Name: "private_subnet_2"
+    region: "{{ aws_region }}"
+  register: private_subnet_2  
+
+- name: Create VPC Public Subnet Route Table
+  ec2_vpc_route_table:
+    vpc_id: "{{ vpc.vpc.id }}"
+    region: "{{ aws_region }}"
+    state: present
+    tags:
+      Name: "{{ public_route_table_name }}"
+    subnets: 
+      - "{{ public_subnet_1.subnet.id }}"
+      - "{{ public_subnet_2.subnet.id }}"
+    # create routes
+    routes:
+      - dest: "{{ destination_cidr_block }}"
+        gateway_id: "{{ igw.gateway_id }}"
+      - dest: "{{ vpc_cidr_block }}"
+        gateway_id: "local"  
+  register: public_route_table
+
+
+- name: Create VPC Private Subnet Route Table
+  ec2_vpc_route_table:
+    vpc_id: "{{ vpc.vpc.id }}"
+    region: "{{ aws_region }}"
+    state: present
+    tags:
+      Name: "{{ private_route_table_name }}"
+    subnets: 
+      - "{{ private_subnet_1.subnet.id }}"
+      - "{{ private_subnet_2.subnet.id }}"
+    # create routes
+    routes:
+      - dest: "{{ vpc_cidr_block }}"
+        gateway_id: "local"  
+  register: private_route_table 
+
+- name: Create Public Network ACL for Better Security
+  ec2_vpc_nacl:
+    vpc_id: "{{ vpc.vpc.id }}"
+    region: "{{ aws_region }}"
+    name: "{{ public_nacl_name }}"
+    subnets: 
+      - "{{ public_subnet_1.subnet.id }}"
+      - "{{ public_subnet_2.subnet.id }}"
+    tags:
+      Name: "{{ public_nacl_name }}"
+    ingress:
+        # rule no, protocol, allow/deny, cidr, icmp_type, icmp_code,
+        #                                             port from, port to
+        - [100, 'tcp', 'allow', '0.0.0.0/0', null, null, 22, 22]
+        - [200, 'tcp', 'allow', '0.0.0.0/0', null, null, 80, 80]
+        - [205, 'tcp', 'allow', '::/0', null, null, 80, 80]
+        - [300, 'icmp', 'allow', '0.0.0.0/0', 0, 8]
+        - [305, 'ipv6-icmp', 'allow', '::/0', 0, 8]
+    egress:
+        - [100, 'all', 'allow', '0.0.0.0/0', null, null, null, null]
+        - [105, 'all', 'allow', '::/0', null, null, null, null]
+    state: 'present'
+  register: public_nacl
+
+
+- name: Create Private Network ACL for Better Security
+  ec2_vpc_nacl:
+    vpc_id: "{{ vpc.vpc.id }}"
+    region: "{{ aws_region }}"
+    name: "{{ private_nacl_name }}"
+    subnets: 
+      - "{{ private_subnet_1.subnet.id }}"
+      - "{{ private_subnet_2.subnet.id }}"
+    tags:
+      Name: "{{ private_nacl_name }}"
+    ingress:
+        # rule no, protocol, allow/deny, cidr, icmp_type, icmp_code,
+        #                                             port from, port to
+        - [100, 'tcp', 'allow', '0.0.0.0/0', null, null, 22, 22]
+        - [200, 'tcp', 'allow', '0.0.0.0/0', null, null, 80, 80]
+        - [205, 'tcp', 'allow', '::/0', null, null, 80, 80]
+        - [300, 'icmp', 'allow', '0.0.0.0/0', 0, 8]
+        - [305, 'ipv6-icmp', 'allow', '::/0', 0, 8]
+    egress:
+        - [100, 'all', 'allow', '0.0.0.0/0', null, null, null, null]
+        - [105, 'all', 'allow', '::/0', null, null, null, null]
+    state: 'present'
+  register: private_nacl

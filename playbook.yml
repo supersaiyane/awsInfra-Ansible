@@ -1,0 +1,38 @@
+---
+- name: Set up VPC and networking
+  hosts: localhost
+  roles:
+    - vpc
+  tasks:
+    - name: Additional tasks specific to VPC setup can go here
+      debug:
+        msg: "Additional VPC tasks"
+
+- name: Set up EC2 instances including Kubernetes masters and workers
+  hosts: localhost
+  roles:
+    - ec2
+  tasks:
+    - name: Additional tasks for EC2 can go here
+      debug:
+        msg: "Additional EC2 tasks"
+
+- name: Prepare the Bastion Host
+  hosts: bastion
+  roles:
+    - bastion
+  tasks:
+    - name: Additional tasks for Bastion can go here
+      debug:
+        msg: "Additional Bastion tasks"
+
+- name: Kubernetes Setup
+  hosts: masters
+  roles:
+    - kube-setup
+  tasks:
+    - name: Additional tasks for Kubernetes setup can go here
+      debug:
+        msg: "Additional Kubernetes setup tasks"
+
+# Add more plays as needed for other roles
