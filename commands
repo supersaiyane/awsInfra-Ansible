@@ -1,0 +1,4 @@
+1. ansible-playbook -i <inventory.ini> site.yml
+2. ansible-playbook --user= --private-key= site.yml  --ssh-extra-args='-o StrictHostKeyChecking=no'
+3. ansible-playbook site.yml 
+4. can put -v(5 / 4/ 3/ 2/ 1) - number of v more verbose will be generated.  
